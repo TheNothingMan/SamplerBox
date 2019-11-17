@@ -438,7 +438,7 @@ def GetLoopmode(mode):
     return loopmode
         
 class PlayingSound:
-    def __init__(self, sound, voice, note, velocity, mixer, pos, end, loop, stopnote, retune):
+    def __init__(self, sound, voice, note, velocity, mixer, pos, end, loop, stopnote, retune, mutegroup):
         self.sound = sound
         self.pos = pos
         self.end = end
@@ -452,6 +452,7 @@ class PlayingSound:
         self.voice = voice
         self.note = note
         self.retune = retune
+        self.mutegroup = mutegroup
         self.playedvel = velocity
         self.vel = mixer
         self.stopnote = stopnote
@@ -488,7 +489,7 @@ class PlayingSound:
     #    except: pass
 
 class Sound:
-    def __init__(self, filename, voice, midinote, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions):
+    def __init__(self, filename, voice, midinote, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions, mutegroup):
         wf = waveread(filename)
         self.fname = filename
         self.voice = voice
@@ -505,6 +506,7 @@ class Sound:
         self.xfadeout = xfadeout
         self.xfadevol = xfadevol
         self.fractions = fractions
+        self.mutegroup = mutegroup
         self.eof = wf.getnframes()
         self.loop = GetLoopmode(mode)       # if no loop requested it's useless to check the wav's capability
         if voice<0:
@@ -558,7 +560,12 @@ class Sound:
                     stopnote = midinote     # let autochordnotes be turned off by their trigger only
                 elif stopnote==127:
                     stopnote = 127-note
-        snd = PlayingSound(self, self.voice, note, velocity, mixer, pos, end, loop, stopnote, retune)
+        
+        if self.mutegroup > 0 and len(gv.playingsounds) > 0: #mute all sounds with same mutegroup
+            for ps in gv.playingsounds:           # stop current keyboard activity
+                if self.mutegroup == ps.mutegroup:
+                    ps.fadeout(False)
+        snd = PlayingSound(self, self.voice, note, velocity, mixer, pos, end, loop, stopnote, retune, self.mutegroup)
         gv.playingsounds.append(snd)
         return snd
 
@@ -1031,6 +1038,7 @@ def ActuallyLoad():
     PRENOTEMAP=""
     PRERELSAMPLE=BOXRELSAMPLE
     PRETRANSPOSE=0
+    PREMUTEGROUP = 0                # default (no mutegroup)
     gv.samples = {}
     fillnotes = {}
     fillnote = 'Y'          # by default we will fill/generate missing notes
@@ -1168,7 +1176,7 @@ def ActuallyLoad():
                         PRENOTEMAP = pattern.split('=')[1].strip().title()
                         continue
                     defaultparams = { 'midinote':'-128', 'velocity':'127', 'gain':'1', 'notename':'', 'voice':'1', 'mode':gv.sample_mode, 'transpose':PRETRANSPOSE, 'release':PRERELEASE, 'damp':PREDAMP, 'dampnoise':PREDAMPNOISE, 'retrigger':PRERETRIGGER,\
-                                      'relsample':PRERELSAMPLE, 'xfadeout':PREXFADEOUT, 'xfadein':PREXFADEIN, 'xfadevol':PREXFADEVOL, 'qnote':PREQNOTE, 'notemap':PRENOTEMAP, 'fillnote':fillnote, 'backtrack':'-1'}
+                                      'relsample':PRERELSAMPLE, 'xfadeout':PREXFADEOUT, 'xfadein':PREXFADEIN, 'xfadevol':PREXFADEVOL, 'qnote':PREQNOTE, 'notemap':PRENOTEMAP, 'fillnote':fillnote, 'backtrack':'-1', 'mutegroup':'0'}
                     if len(pattern.split(',')) > 1:
                         defaultparams.update(dict([item.split('=') for item in pattern.split(',', 1)[1].replace(' ','').replace('%', '').split(',')]))
                     pattern = pattern.split(',')[0]
@@ -1177,7 +1185,8 @@ def ActuallyLoad():
                                      .replace(r"\%fillnote", r"(?P<fillnote>[YNFynf])").replace(r"\%mode", r"(?P<mode>[A-Za-z0-9])").replace(r"\%transpose", r"(?P<transpose>\d+)").replace(r"\%release", r"(?P<release>\d+)").replace(r"\%damp", r"(?P<damp>\d+)")\
                                      .replace(r"\%dampnoise", r"(?P<dampnoise>\[YNyn])").replace(r"\%retrigger", r"(?P<retrigger>[YyRrDd])").replace(r"\%relsample", r"(?P<relsample>[NnSsEe])").replace(r"\%xfadeout", r"(?P<xfadeout>\d+)").replace(r"\%xfadein", r"(?P<xfadein>\d+)")\
                                      .replace(r"\%qnote", r"(?P<qnote>[YyNnOoEe])").replace(r"\%notemap", r"(?P<notemap>[A-Za-z0-9]\_\-\&)")\
-                                     .replace(r"\%backtrack", r"(?P<backtrack>\d+)").replace(r"\%notename", r"(?P<notename>[A-Ga-g][#ks]?[0-9])").replace(r"\*", r".*?").strip()    # .*? => non greedy
+                                     .replace(r"\%backtrack", r"(?P<backtrack>\d+)").replace(r"\%notename", r"(?P<notename>[A-Ga-g][#ks]?[0-9])")\
+                                     .replace(r"\%mutegroup", r"(?P<mutegroup>\d+)").replace(r"\*", r".*?").strip()    # .*? => non greedy
                     for fname in os.listdir(dirname):
                         if LoadingInterrupt:
                             print 'Loading % s interrupted...' % dirname
@@ -1272,11 +1281,12 @@ def ActuallyLoad():
                             if (GetStopmode(mode)<-1) or (GetStopmode(mode)==127 and midinote>(127-gv.stop127)):
                                 print "invalid mode '%s' or note %d out of range, set to keyboard mode." % (mode, midinote)
                                 mode=PLAYLIVE
+                            mutegroup = int(info.get('mutegroup', defaultparams['mutegroup']))
                             try:
                                 if backtrack>-1:    # Backtracks are intended for start/stop via controller, so we can use unplayable notes
-                                    gv.samples[130+backtrack, velocity, voice] = Sound(os.path.join(dirname, fname), voice, 130+backtrack, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions)
+                                    gv.samples[130+backtrack, velocity, voice] = Sound(os.path.join(dirname, fname), voice, 130+backtrack, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions, mutegroup)
                                 if midinote>-1:
-                                    gv.samples[midinote, velocity, voice] = Sound(os.path.join(dirname, fname), voice, midinote, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions)
+                                    gv.samples[midinote, velocity, voice] = Sound(os.path.join(dirname, fname), voice, midinote, velocity, mode, release, damp, dampnoise, retrigger, gain, relsample, xfadeout, xfadein, xfadevol, fractions, mutegroup)
                                     fillnotes[midinote, voice] = voicefillnote
                                     if gv.voicelist[voicex][2]=="" or mode==PLAYMONO: gv.voicelist[voicex][2]=mode
                                     elif gv.voicelist[voicex][2]!=PLAYMONO and gv.voicelist[voicex][2]!=mode: gv.voicelist[voicex][2]="Mixed"
@@ -1294,7 +1304,7 @@ def ActuallyLoad():
             file = os.path.join(dirname, "%d.wav" % midinote)
             #print "Trying " + file
             if os.path.isfile(file):
-                gv.samples[midinote, 127, 1] = Sound(file, 1, midinote, 127, gv.sample_mode, PRERELEASE, PREDAMP, PRERETRIGGER, gv.globalgain, BOXRELSAMPLE, PREXFADEOUT, PREXFADEIN, PREXFADEVOL, PREFRACTIONS)
+                gv.samples[midinote, 127, 1] = Sound(file, 1, midinote, 127, gv.sample_mode, PRERELEASE, PREDAMP, PREDAMPNOISE, PRERETRIGGER, gv.globalgain, BOXRELSAMPLE, PREXFADEOUT, PREXFADEIN, PREXFADEVOL, PREFRACTIONS, PREMUTEGROUP)
                 fillnotes[midinote, 1] = fillnote
         voicenames=[[1,"Default"]]
         gv.voicelist=[[1,'','Keyb','']]
