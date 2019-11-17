@@ -10,8 +10,8 @@ import gv
 BUT_incr = gv.cp.getint(gv.cfg,"BUT_incr".lower())
 BUT_decr = gv.cp.getint(gv.cfg,"BUT_decr".lower())
 BUT_sel  = gv.cp.getint(gv.cfg,"BUT_sel".lower())
-BUT_voldown = 19
-BUT_volup = 6
+BUT_voldown = gv.cp.getint(gv.cfg,"BUT_voldown".lower())
+BUT_volup = gv.cp.getint(gv.cfg,"BUT_volup".lower())
 
 lastbuttontime = 0
 buttfunc = 0

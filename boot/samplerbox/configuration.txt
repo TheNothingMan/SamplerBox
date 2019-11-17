@@ -81,6 +81,8 @@ PITCHBITS = 7                   ; pitchwheel resolution, 0=disable, max=14 (=163
 BUT_incr=26                      ; Increase button
 BUT_decr=5                     ; Decrease button
 BUT_sel=13                      ; Select button
+BUT_voldown=19                  ; Volume down button
+BUT_volup=6                     ; Volume up button
 #
 #     -- USE_LEDS --
 LED_red=27                      ; Red light
